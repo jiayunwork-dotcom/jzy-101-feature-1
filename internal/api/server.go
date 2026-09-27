@@ -1,7 +1,8 @@
 // Package api exposes the waveguide service over HTTP using Gin. It is
-// a thin layer: all physics lives in internal/physics, all storage in
-// internal/profile, all checking in internal/validate, and batch
-// scheduling in internal/batch.
+// a thin layer: all physics lives in internal/physics, the mode
+// spectrum in internal/spectrum, all storage in internal/profile, all
+// checking in internal/validate, and batch scheduling in
+// internal/batch.
 package api
 
 import (
@@ -28,8 +29,10 @@ func NewServer(store *profile.Store) *gin.Engine {
 		v1.GET("/profiles/:name", h.getProfile)
 		v1.DELETE("/profiles/:name", h.deleteProfile)
 		v1.POST("/profiles/:name/evaluate", h.evaluateProfile)
+		v1.GET("/profiles/:name/spectrum", h.spectrumProfile)
 
 		v1.POST("/evaluate", h.evaluateAdHoc)
+		v1.POST("/spectrum", h.spectrumAdHoc)
 	}
 	return r
 }

@@ -3,12 +3,14 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
 	"waveguide/internal/batch"
 	"waveguide/internal/physics"
 	"waveguide/internal/profile"
+	"waveguide/internal/spectrum"
 	"waveguide/internal/validate"
 )
 
@@ -180,4 +182,103 @@ func (h *handler) runEvaluation(c *gin.Context, profileName *string, cs physics.
 		}
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// ---------- spectrum ----------
+
+func (h *handler) spectrumProfile(c *gin.Context) {
+	p, err := h.store.Get(c.Param("name"))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	maxIndex, ok := maxIndexFromQuery(c)
+	if !ok {
+		return
+	}
+	h.runSpectrum(c, &p.Name, p.CrossSection, maxIndex)
+}
+
+func (h *handler) spectrumAdHoc(c *gin.Context) {
+	var req spectrumRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "MALFORMED_JSON", "request body is not valid JSON: "+err.Error())
+		return
+	}
+	if verr := validate.CrossSection(req.BroadDimensionM, req.NarrowDimensionM, req.RelativePermittivity); verr != nil {
+		writeValidationError(c, verr)
+		return
+	}
+	maxIndex := spectrum.DefaultMaxIndex
+	if req.MaxIndex != nil {
+		if verr := validate.SpectrumMaxIndex(*req.MaxIndex); verr != nil {
+			writeValidationError(c, verr)
+			return
+		}
+		maxIndex = *req.MaxIndex
+	}
+	cs := physics.CrossSection{
+		A:        req.BroadDimensionM,
+		B:        req.NarrowDimensionM,
+		EpsilonR: req.RelativePermittivity,
+	}
+	h.runSpectrum(c, nil, cs, maxIndex)
+}
+
+// maxIndexFromQuery reads the optional ?max_index= parameter of the
+// profile spectrum endpoint. The second return value is false when an
+// error response has already been written.
+func maxIndexFromQuery(c *gin.Context) (int, bool) {
+	raw := c.Query("max_index")
+	if raw == "" {
+		return spectrum.DefaultMaxIndex, true
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "INVALID_MAX_INDEX",
+			"max_index must be an integer, got "+strconv.Quote(raw))
+		return 0, false
+	}
+	if verr := validate.SpectrumMaxIndex(v); verr != nil {
+		writeValidationError(c, verr)
+		return 0, false
+	}
+	return v, true
+}
+
+// runSpectrum is the single computation path shared by the
+// profile-based and the ad-hoc spectrum endpoints: both funnel the
+// cross-section into the same enumeration and ordering core, exactly
+// like runEvaluation does for point queries.
+func (h *handler) runSpectrum(c *gin.Context, profileName *string, cs physics.CrossSection, maxIndex int) {
+	rep := spectrum.Analyze(cs, maxIndex)
+	c.JSON(http.StatusOK, spectrumResponse{
+		Profile:              profileName,
+		BroadDimensionM:      cs.A,
+		NarrowDimensionM:     cs.B,
+		RelativePermittivity: cs.EpsilonR,
+		MaxIndex:             rep.MaxIndex,
+		SingleModeRange: singleModeRangeDTO{
+			LowerHz:        rep.Range.LowerHz,
+			UpperHz:        rep.Range.UpperHz,
+			LowerInclusive: true,
+			UpperInclusive: false,
+		},
+		DominantModes: toSpectrumEntryDTOs(rep.Dominant),
+		NextModes:     toSpectrumEntryDTOs(rep.Next),
+		Spectrum:      toSpectrumEntryDTOs(rep.Spectrum),
+	})
+}
+
+func toSpectrumEntryDTOs(entries []spectrum.Entry) []spectrumEntryDTO {
+	out := make([]spectrumEntryDTO, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, spectrumEntryDTO{
+			Kind:     e.Kind,
+			M:        e.Mode.M,
+			N:        e.Mode.N,
+			CutoffHz: e.CutoffHz,
+		})
+	}
+	return out
 }

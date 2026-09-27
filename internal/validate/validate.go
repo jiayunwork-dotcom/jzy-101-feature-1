@@ -24,6 +24,17 @@ func newError(code, format string, args ...any) *Error {
 // MaxFrequenciesPerBatch bounds a single batch evaluation request.
 const MaxFrequenciesPerBatch = 256
 
+// Bounds accepted for an explicitly requested spectrum enumeration
+// index. The lower bound is the smallest index range that still yields
+// the exact single-mode window (see internal/spectrum.MinMaxIndex —
+// the two must agree); the upper bound keeps responses reasonably
+// sized. Smaller explicit values are rejected rather than silently
+// widened, because they could miss the mode that closes the window.
+const (
+	MinSpectrumMaxIndex = 2
+	MaxSpectrumMaxIndex = 32
+)
+
 var namePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // ProfileName checks a profile name: 1-64 chars, alphanumeric plus
@@ -99,6 +110,16 @@ func FrequencyBatch(count int) *Error {
 	if count > MaxFrequenciesPerBatch {
 		return newError("TOO_MANY_FREQUENCIES",
 			"at most %d frequencies per batch, got %d", MaxFrequenciesPerBatch, count)
+	}
+	return nil
+}
+
+// SpectrumMaxIndex checks an explicitly requested spectrum enumeration
+// bound.
+func SpectrumMaxIndex(v int) *Error {
+	if v < MinSpectrumMaxIndex || v > MaxSpectrumMaxIndex {
+		return newError("INVALID_MAX_INDEX",
+			"max_index must be between %d and %d, got %d", MinSpectrumMaxIndex, MaxSpectrumMaxIndex, v)
 	}
 	return nil
 }

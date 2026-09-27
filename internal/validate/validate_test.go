@@ -85,3 +85,16 @@ func TestFrequencyBatchRules(t *testing.T) {
 		t.Fatalf("small batch must be accepted, got %v", err)
 	}
 }
+
+func TestSpectrumMaxIndexRules(t *testing.T) {
+	for _, v := range []int{MinSpectrumMaxIndex, 8, MaxSpectrumMaxIndex} {
+		if err := SpectrumMaxIndex(v); err != nil {
+			t.Fatalf("max_index %d must be accepted, got %v", v, err)
+		}
+	}
+	for _, v := range []int{-3, 0, 1, MinSpectrumMaxIndex - 1, MaxSpectrumMaxIndex + 1, 1000} {
+		if err := SpectrumMaxIndex(v); err == nil || err.Code != "INVALID_MAX_INDEX" {
+			t.Fatalf("max_index %d must be rejected, got %v", v, err)
+		}
+	}
+}
