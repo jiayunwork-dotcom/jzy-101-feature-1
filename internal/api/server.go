@@ -28,8 +28,10 @@ func NewServer(store *profile.Store) *gin.Engine {
 		v1.GET("/profiles/:name", h.getProfile)
 		v1.DELETE("/profiles/:name", h.deleteProfile)
 		v1.POST("/profiles/:name/evaluate", h.evaluateProfile)
+		v1.POST("/profiles/:name/spectrum", h.spectrumForProfile)
 
 		v1.POST("/evaluate", h.evaluateAdHoc)
+		v1.POST("/spectrum", h.spectrumAdHoc)
 	}
 	return r
 }

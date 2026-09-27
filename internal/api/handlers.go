@@ -9,6 +9,7 @@ import (
 	"waveguide/internal/batch"
 	"waveguide/internal/physics"
 	"waveguide/internal/profile"
+	"waveguide/internal/spectrum"
 	"waveguide/internal/validate"
 )
 
@@ -180,4 +181,71 @@ func (h *handler) runEvaluation(c *gin.Context, profileName *string, cs physics.
 		}
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// ---------- mode spectrum / single-mode band ----------
+
+func (h *handler) spectrumForProfile(c *gin.Context) {
+	p, err := h.store.Get(c.Param("name"))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	h.runSpectrum(c, &p.Name, p.CrossSection)
+}
+
+func (h *handler) spectrumAdHoc(c *gin.Context) {
+	var req adHocSpectrumRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "MALFORMED_JSON", "request body is not valid JSON: "+err.Error())
+		return
+	}
+	if verr := validate.CrossSection(req.BroadDimensionM, req.NarrowDimensionM, req.RelativePermittivity); verr != nil {
+		writeValidationError(c, verr)
+		return
+	}
+	cs := physics.CrossSection{
+		A:        req.BroadDimensionM,
+		B:        req.NarrowDimensionM,
+		EpsilonR: req.RelativePermittivity,
+	}
+	h.runSpectrum(c, nil, cs)
+}
+
+// runSpectrum is the single computation path shared by the
+// profile-based and the ad-hoc spectrum endpoints: the same family
+// enumeration and ordering core (spectrum.Analyze) backs both.
+func (h *handler) runSpectrum(c *gin.Context, profileName *string, cs physics.CrossSection) {
+	a := spectrum.Analyze(cs)
+
+	toModeDTOs := func(group []spectrum.SpectralMode) []spectralModeDTO {
+		out := make([]spectralModeDTO, 0, len(group))
+		for _, m := range group {
+			out = append(out, spectralModeDTO{
+				Kind:              string(m.Kind),
+				M:                 m.M,
+				N:                 m.N,
+				CutoffFrequencyHz: m.CutoffHz,
+			})
+		}
+		return out
+	}
+
+	c.JSON(http.StatusOK, spectrumResponse{
+		Profile: profileName,
+		SingleModeBand: singleModeBandDTO{
+			LowerFrequencyHz: a.Band.LowerHz,
+			UpperFrequencyHz: a.Band.UpperHz,
+			LowerInclusive:   true,
+			UpperInclusive:   false,
+			BandwidthHz:      a.Band.Width(),
+			DominantModes:    toModeDTOs(a.Band.Dominant),
+			NextModes:        toModeDTOs(a.Band.Next),
+		},
+		Enumeration: spectrumWindowDTO{
+			MaxModeIndex: a.MaxModeIndex,
+			ModeCount:    len(a.Spectrum),
+		},
+		Spectrum: toModeDTOs(a.Spectrum),
+	})
 }
